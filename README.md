@@ -4,6 +4,12 @@ This script fetches and analyzes pipeline data from Harness.io, processes the st
 
 ## Table of Contents
 
+- [Account-Level Metrics](#account-level-metrics)
+- [Organization-Level Metrics](#organization-level-metrics)
+- [Pipeline-Level Metrics](#pipeline-level-metrics)
+- [Error Reporting](#error-reporting)
+- [CSV Export](#csv-export)
+- [Excel Spreadsheet](#excel-spreadsheet)
 - [Requirements](#requirements)
 - [Setup](#setup)
 - [Usage](#usage)
@@ -11,6 +17,73 @@ This script fetches and analyzes pipeline data from Harness.io, processes the st
 - [Logging](#logging)
 - [Exporting Data](#exporting-data)
 - [Updating Spreadsheet](#updating-spreadsheet)
+
+# Metrics Exported and Calculated
+
+The script performs extensive data collection and analysis on the pipeline data fetched from Harness.io. Below is a detailed list of metrics that are calculated and exported by the script:
+
+## Account-Level Metrics
+
+- **Total Organizations**: The total number of organizations.
+- **Total Projects**: The total number of projects across all organizations.
+- **Total Pipelines**: The total number of pipelines across all projects.
+- **Total Pipelines with CI**: The total number of pipelines that contain CI stages.
+- **Total CI Stages**: The total number of CI stages across all pipelines.
+- **Template Count**: The total usage count of each template across all pipelines.
+- **Infrastructure Types Percentage**: The percentage distribution of different infrastructure types used in CI stages (e.g., Harness Cloud, Mixed).
+- **Average Build Time**: The average build time for all pipelines with CI stages.
+- **Maximum Build Time**: The maximum build time for all pipelines with CI stages.
+
+## Organization-Level Metrics
+
+For each organization, the following metrics are calculated:
+
+- **Total Pipelines**: The total number of pipelines in the organization.
+- **Total Pipelines with CI**: The total number of pipelines that contain CI stages in the organization.
+- **Total CI Stages**: The total number of CI stages in the organization's pipelines.
+- **Template Count**: The total usage count of each template in the organization's pipelines.
+- **Infrastructure Types Percentage**: The percentage distribution of different infrastructure types used in CI stages within the organization.
+- **Average Build Time**: The average build time for all pipelines with CI stages in the organization.
+- **Maximum Build Time**: The maximum build time for all pipelines with CI stages in the organization.
+
+## Pipeline-Level Metrics
+
+For each pipeline, the following metrics are calculated:
+
+- **Pipeline Identifier**: The unique identifier of the pipeline.
+- **Organization Identifier**: The identifier of the organization the pipeline belongs to.
+- **Project Identifier**: The identifier of the project the pipeline belongs to.
+- **Pipeline Name**: The name of the pipeline.
+- **CI Stages Count**: The number of CI stages in the pipeline.
+- **Total Stages**: The total number of stages in the pipeline.
+- **Template Count**: The total usage count of each template in the pipeline.
+- **Templates Used**: The list of templates used in the pipeline.
+- **Infrastructure Types**: The types of infrastructure used in CI stages of the pipeline.
+- **Average Build Time**: The average build time for the pipeline.
+- **Maximum Build Time**: The maximum build time for the pipeline.
+
+## Error Reporting
+
+- **Pipeline Errors**: A list of errors encountered while fetching or processing the pipelines, including the organization identifier, project identifier, pipeline identifier, and error message.
+
+## CSV Export
+
+The script exports the following CSV files containing the calculated metrics:
+
+- **account_summary.csv**: Contains the account-level metrics.
+- **org_summary.csv**: Contains the organization-level metrics.
+- **pipeline_details.csv**: Contains the detailed pipeline-level metrics.
+- **pipeline_errors.csv**: Contains the pipeline errors.
+- **template_details.csv**: Contains the template usage details.
+
+## Excel Spreadsheet
+
+The script updates an Excel spreadsheet with the following sheets:
+
+- **Account Summary**: Contains the account-level metrics.
+- **Org Summary**: Contains the organization-level metrics.
+- **Pipeline Details**: Contains the detailed pipeline-level metrics.
+- **Template Details**: Contains the template usage details.
 
 ## Requirements
 
