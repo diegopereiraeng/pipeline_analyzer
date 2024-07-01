@@ -11,6 +11,7 @@ import pandas as pd
 import logging
 from dotenv import load_dotenv, find_dotenv
 import os
+import tenacity
 
 _ = load_dotenv(override=True)
 
@@ -41,6 +42,12 @@ def timer_func(func):
         return result
     return wrapper
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(5),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+    reraise=True
+)
 @timer_func
 def get_orgs():
     url = f'{BASE_URL}/ng/api/organizations?accountIdentifier={HARNESS_ACCOUNT_ID}&pageSize=500'
@@ -49,6 +56,12 @@ def get_orgs():
     response.raise_for_status()
     return response.json()['data']['content']
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(5),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+    reraise=True
+)
 @timer_func
 def get_projects(org_identifier):
     url = f'{BASE_URL}/ng/api/aggregate/projects?routingId={HARNESS_ACCOUNT_ID}&accountIdentifier={HARNESS_ACCOUNT_ID}&orgIdentifier={org_identifier}&pageIndex=0&pageSize=500&sortOrders=createdAt%2CDESC'
@@ -57,6 +70,12 @@ def get_projects(org_identifier):
     response.raise_for_status()
     return response.json()['data']['content']
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(5),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+    reraise=True
+)
 @timer_func
 def get_pipelines(org_identifier, project_identifier):
     url = f'{BASE_URL}/pipeline/api/pipelines/list?routingId={HARNESS_ACCOUNT_ID}&accountIdentifier={HARNESS_ACCOUNT_ID}&projectIdentifier={project_identifier}&orgIdentifier={org_identifier}&page=0&sort=lastUpdatedAt%2CDESC&size=500'
@@ -71,6 +90,12 @@ def get_pipelines(org_identifier, project_identifier):
         return None
     return response.json()['data']['content']
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(5),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+    reraise=True
+)
 @timer_func
 def get_pipeline_yaml(org_identifier, project_identifier, pipeline_identifier, store_type, connector_ref=None, repo_name=None):
     if store_type == "INLINE":
@@ -95,7 +120,12 @@ def get_pipeline_yaml(org_identifier, project_identifier, pipeline_identifier, s
         logging.error(f'Connection error: {e}\nURL: {url}')
         return None, str(e)
 
-
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(5),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+    reraise=True
+)
 @timer_func
 def get_template_yaml(template_ref, version_label='0.0.1', current_level='account', org_identifier=None, project_identifier=None, parent_pipeline_id=None):
     if template_ref.startswith('account.'):
@@ -210,6 +240,8 @@ def analyze_pipelines(pipelines, org_identifier, project_identifier, processed_t
     pipeline_details = []
     pipeline_errors = []
     total_pipelines = len(pipelines)
+    avg_build_times = []
+    max_build_times = []
 
     for pipeline in pipelines:
         store_type = pipeline.get('storeType', 'INLINE')
@@ -219,7 +251,7 @@ def analyze_pipelines(pipelines, org_identifier, project_identifier, processed_t
         pipeline_identifier = pipeline['identifier']
         if pipeline_identifier != DEBUG_PIPELINE_NAME and DEBUG == True:
             continue
-                
+
         pipeline_yaml, error = get_pipeline_yaml(org_identifier, project_identifier, pipeline_identifier, store_type, connector_ref, repo_name)
         if error:
             pipeline_errors.append({
@@ -272,7 +304,6 @@ def analyze_pipelines(pipelines, org_identifier, project_identifier, processed_t
                         })
                         continue
                 else:
-                    # Utilize as informações do template processado anteriormente
                     processed_templates[template_ref]['count'] += 1
                     infra_types_pipeline = processed_templates[template_ref]['infra']
                     ci_stages_count = 1 if processed_templates[template_ref]['ci'] else 0
@@ -298,6 +329,10 @@ def analyze_pipelines(pipelines, org_identifier, project_identifier, processed_t
             if pipeline_identifier == DEBUG_PIPELINE_NAME and DEBUG == True:
                 logging.info(f'Pipeline details after stage processing: {pipeline_details}')
                 logging.info(f'Infra types after stage processing: {infra_types}')
+            avg_build_time, max_build_time = get_avg_and_max_build_time(org_identifier, project_identifier, pipeline_identifier)
+            if avg_build_time > 0 and max_build_time > 0:
+                avg_build_times.append(avg_build_time)
+                max_build_times.append(max_build_time)
             pipeline_details.append({
                 'pipeline_identifier': pipeline_identifier,
                 'org_identifier': org_identifier,
@@ -307,10 +342,15 @@ def analyze_pipelines(pipelines, org_identifier, project_identifier, processed_t
                 'total_stages': len(pipeline_yaml.get('pipeline', {}).get('stages', [])),
                 'template_count': sum(template_count.values()),
                 'pipeline_name': pipeline.get('name', ''),
-                'templates_used': ', '.join(templates_used_recursive)
+                'templates_used': ', '.join(templates_used_recursive),
+                'avg_build_time': avg_build_time,
+                'max_build_time': max_build_time
             })
 
-    return total_pipelines, total_pipelines_with_ci, total_ci_stages, infra_types, template_count, pipeline_details, pipeline_errors
+    total_avg_build_time = sum(avg_build_times) / len(avg_build_times) if avg_build_times else 0
+    total_max_build_time = max(max_build_times) if max_build_times else 0
+
+    return total_pipelines, total_pipelines_with_ci, total_ci_stages, infra_types, template_count, pipeline_details, pipeline_errors, total_avg_build_time, total_max_build_time
 
 def handle_infra_types(infra_types_pipeline):
     if len(infra_types_pipeline) > 1:
@@ -334,27 +374,36 @@ def calculate_percentage(infra_types, total_count):
 
 # Calculate Build time avg and max of pipelines
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(5),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+    reraise=True
+)
 def fetch_pipeline_executions(org_identifier, project_identifier, pipeline_identifier):
-    api_url = 'https://app.harness.io/pipeline/api/pipelines/execution/summary'
+    api_url = f'https://app.harness.io/pipeline/api/pipelines/execution/summary?accountIdentifier={HARNESS_ACCOUNT_ID}&orgIdentifier={org_identifier}&projectIdentifier={project_identifier}&pipelineIdentifier={pipeline_identifier}&page=0&size=20&showAllExecutions=true&getDefaultFromOtherRepo=true'
     print(f'Fetching pipeline executions for pipeline {pipeline_identifier}: {api_url}')
+    
     payload = {
-        "accountIdentifier": "6_vVHzo9Qeu9fXvj-AcbCQ",
-        "orgIdentifier": org_identifier,
-        "projectIdentifier": project_identifier,
-        "pipelineIdentifier": pipeline_identifier,
-        "page": 0,
-        "size": 20,
-        "showAllExecutions": True,
-        "module": "CI",
-        "getDefaultFromOtherRepo": True,
         "filterType": "PipelineExecution"
     }
-    response = requests.post(api_url, headers=headers, data=json.dumps(payload))
+    response = requests.post(api_url, headers=headers, json=payload)
     response.raise_for_status()  # Raise an exception for HTTP errors
     return response.json()
 
+def safe_fetch_pipeline_executions(org_identifier, project_identifier, pipeline_identifier):
+    try:
+        return fetch_pipeline_executions(org_identifier, project_identifier, pipeline_identifier)
+    except requests.exceptions.RequestException as e:
+        logging.error(f'Failed to fetch pipeline executions for {pipeline_identifier}: {e}')
+        return None
+
+
 def calculate_build_times(executions):
+    print("Calculating Executions Build Times")
+
     if not executions:
+        print("No Executions")
         return 0, 0
     
     total_time = []
@@ -363,7 +412,7 @@ def calculate_build_times(executions):
         build_time = 0
         for node in execution.get('layoutNodeMap', {}).values():
             if node['nodeType'] == 'CI' and 'startTs' in node and 'endTs' in node:
-                build_time += node['endTs'] - node['startTs']
+                build_time += (node['endTs'] - node['startTs']) / 1000 / 60 
         
         if build_time > 0:
             total_time.append(build_time)
@@ -373,20 +422,24 @@ def calculate_build_times(executions):
     
     avg_time = sum(total_time) / len(total_time)
     max_time = max(total_time)
+
+    # Ensure max_time is not less than avg_time
+    max_time = max(max_time, avg_time)
+
+    print(f"Avg/Max time: {avg_time}/{max_time}")
     
     return avg_time, max_time
 
 def get_avg_and_max_build_time(org_identifier, project_identifier, pipeline_identifier):
-    
-    response_data = fetch_pipeline_executions(org_identifier, project_identifier, pipeline_identifier)
+    response_data = safe_fetch_pipeline_executions(org_identifier, project_identifier, pipeline_identifier)
+    if response_data is None:
+        return 0, 0
     executions = response_data.get('data', {}).get('content', [])
-    
     avg_time, max_time = calculate_build_times(executions)
-    
     return avg_time, max_time
 
-#  End Calculate build time
 
+#  End Calculate build time
 
 def export_to_csv(org_summary, account_summary):
     # Dynamically determine the union of all keys in org_summary to include in the CSV
@@ -399,7 +452,7 @@ def export_to_csv(org_summary, account_summary):
     
     fieldnames_account = [
         'total_orgs', 'total_projects', 'total_pipelines', 'total_pipelines_with_ci', 
-        'total_ci_stages', 'template_count'
+        'total_ci_stages', 'template_count', 'avg_build_time', 'max_build_time'
     ] + list(all_keys)
 
     with open('account_summary.csv', 'w', newline='') as csvfile:
@@ -412,14 +465,16 @@ def export_to_csv(org_summary, account_summary):
             'total_pipelines': account_summary['total_pipelines'],
             'total_pipelines_with_ci': account_summary['total_pipelines_with_ci'],
             'total_ci_stages': account_summary['total_ci_stages'],
-            'template_count': account_summary['template_count']
+            'template_count': account_summary['template_count'],
+            'avg_build_time': account_summary['avg_build_time'],
+            'max_build_time': account_summary['max_build_time']
         }
         account_summary_data.update(account_summary['infra_percentage'])
         writer.writerow(account_summary_data)
 
     fieldnames_org = [
         'org_identifier', 'total_pipelines', 'total_pipelines_with_ci', 
-        'total_ci_stages', 'template_count'
+        'total_ci_stages', 'template_count', 'avg_build_time', 'max_build_time'
     ] + list(all_keys)
 
     with open('org_summary.csv', 'w', newline='') as csvfile:
@@ -432,17 +487,21 @@ def export_to_csv(org_summary, account_summary):
                 'total_pipelines': summary['total_pipelines'],
                 'total_pipelines_with_ci': summary['total_pipelines_with_ci'],
                 'total_ci_stages': summary['total_ci_stages'],
-                'template_count': summary['template_count']
+                'template_count': summary['template_count'],
+                'avg_build_time': summary['avg_build_time'],
+                'max_build_time': summary['max_build_time']
             }
             org_summary_data.update(summary['infra_percentage'])
             writer.writerow(org_summary_data)
 
 def export_pipeline_details_to_csv(pipeline_details):
+    fieldnames = [
+        'pipeline_identifier', 'org_identifier', 'project_identifier', 'pipeline_name', 
+        'ci_stages_count', 'total_stages', 'template_count', 'templates_used', 'infra_types',
+        'avg_build_time', 'max_build_time'  # Include these additional fields
+    ]
+
     with open('pipeline_details.csv', 'w', newline='') as csvfile:
-        fieldnames = [
-            'pipeline_identifier', 'org_identifier', 'project_identifier', 'pipeline_name', 
-            'ci_stages_count', 'total_stages', 'template_count', 'templates_used', 'infra_types'
-        ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
@@ -560,7 +619,6 @@ def update_spreadsheet(org_summary, account_summary, pipeline_details, template_
 
 
 
-
 def main():
     orgs = get_orgs()
     total_orgs = len(orgs)
@@ -575,6 +633,8 @@ def main():
     pipeline_errors = []
     processed_templates = {}
     template_count_dict = defaultdict(int)
+    avg_build_times_account = []
+    max_build_times_account = []
 
     for org in orgs:
         org_identifier = org['organization']['identifier']
@@ -587,6 +647,8 @@ def main():
         total_ci_stages_org = 0
         template_count_org = defaultdict(int)
         total_pipelines_org = 0
+        avg_build_times_org = []
+        max_build_times_org = []
 
         for project in projects:
             project_identifier = project['projectResponse']['project']['identifier']
@@ -595,12 +657,15 @@ def main():
             pipelines = get_pipelines(org_identifier, project_identifier)
             if pipelines:
                 total_pipelines_org += len(pipelines)
-                total_pipelines_project, ci_pipelines_count, total_stages, infra_types, template_count_local, details, errors = analyze_pipelines(
+                total_pipelines_project, ci_pipelines_count, total_stages, infra_types, template_count_local, details, errors, avg_build_time, max_build_time = analyze_pipelines(
                     pipelines, org_identifier, project_identifier, processed_templates, template_count_dict
                 )
                 total_pipelines += total_pipelines_project
                 total_pipelines_with_ci += ci_pipelines_count
                 total_ci_stages += total_stages
+
+                avg_build_times_org.append(avg_build_time)
+                max_build_times_org.append(max_build_time)
                 for template_ref, count in template_count_local.items():
                     template_count[template_ref] += count
                 ci_stage_count_org += ci_pipelines_count
@@ -613,13 +678,20 @@ def main():
                 pipeline_errors.extend(errors)
 
         infra_percentage_org = calculate_percentage(infra_types_org, ci_stage_count_org)
+        avg_build_time_org = sum(avg_build_times_org) / len(avg_build_times_org) if avg_build_times_org else 0
+        max_build_time_org = max(max_build_times_org) if max_build_times_org else 0
         org_summary[org_identifier] = {
             'total_pipelines': total_pipelines_org,
             'total_pipelines_with_ci': ci_stage_count_org,
             'total_ci_stages': total_ci_stages_org,
             'template_count': dict(template_count_org),
-            'infra_percentage': infra_percentage_org
+            'infra_percentage': infra_percentage_org,
+            'avg_build_time': avg_build_time_org,
+            'max_build_time': max_build_time_org
         }
+
+        avg_build_times_account.append(avg_build_time_org)
+        max_build_times_account.append(max_build_time_org)
 
         for infra_type, count in infra_types_org.items():
             infra_types_account[infra_type] += count
@@ -627,6 +699,8 @@ def main():
     infra_percentage_account = calculate_percentage(infra_types_account, total_pipelines_with_ci)
     avg_pipelines_per_project = total_pipelines / total_projects if total_projects > 0 else 0
     avg_projects_per_org = total_projects / total_orgs if total_orgs > 0 else 0
+    total_account_avg_build_time = sum(avg_build_times_account) / len(avg_build_times_account) if avg_build_times_account else 0
+    total_account_max_build_time = max(max_build_times_account) if max_build_times_account else 0
 
     account_summary = {
         'total_orgs': total_orgs,
@@ -635,7 +709,9 @@ def main():
         'total_pipelines_with_ci': total_pipelines_with_ci,
         'total_ci_stages': total_ci_stages,
         'template_count': dict(template_count),
-        'infra_percentage': infra_percentage_account
+        'infra_percentage': infra_percentage_account,
+        'avg_build_time': total_account_avg_build_time,
+        'max_build_time': total_account_max_build_time
     }
 
     print(f'Total Organizations: {total_orgs}')
@@ -646,6 +722,8 @@ def main():
     print(f'Templates in Pipelines: {sum(template_count.values())}')
     print(f'Average Pipelines per Project: {avg_pipelines_per_project:.2f}')
     print(f'Average Projects per Organization: {avg_projects_per_org:.2f}')
+    print(f'Total Account Average Build Time: {total_account_avg_build_time}')
+    print(f'Total Account Max Build Time: {total_account_max_build_time}')
     print(f'\nInfrastructure types for account:')
     for infra_type, percentage in infra_percentage_account.items():
         print(f'{infra_type}: {percentage}')
@@ -657,6 +735,8 @@ def main():
         print(f'Pipelines with CI Stage: {summary["total_pipelines_with_ci"]}')
         print(f'CI Stage Count: {summary["total_ci_stages"]}')
         print(f'Templates in Pipelines: {sum(summary["template_count"].values())}')
+        print(f'Average Build Time: {summary["avg_build_time"]}')
+        print(f'Max Build Time: {summary["max_build_time"]}')
         for infra_type, percentage in summary['infra_percentage'].items():
             print(f'{infra_type}: {percentage}')
 
