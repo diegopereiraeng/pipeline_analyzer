@@ -18,10 +18,6 @@ This script fetches and analyzes pipeline data from Harness.io, processes the st
 - [Exporting Data](#exporting-data)
 - [Updating Spreadsheet](#updating-spreadsheet)
 
-# Metrics Exported and Calculated
-
-The script performs extensive data collection and analysis on the pipeline data fetched from Harness.io. Below is a detailed list of metrics that are calculated and exported by the script:
-
 ## Account-Level Metrics
 
 - **Total Organizations**: The total number of organizations.
