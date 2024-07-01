@@ -157,7 +157,7 @@ The script generates the following CSV files:
 
 ## Updating Spreadsheet
 
-The script updates an Excel spreadsheet located at `/Users/diegopereira/Documents/Development/git/serenity/CI-AdoptionPlan-Hosted_Builds_Migration.xlsx`. If the file does not exist, it creates a new one. The updated spreadsheet is saved as `CI-AdoptionPlan-Hosted_Builds_Migration_Updated.xlsx` in the same directory.
+The script updates an Excel spreadsheet located at `./CI-AdoptionPlan-Hosted_Builds_Migration.xlsx`. If the file does not exist, it creates a new one. The updated spreadsheet is saved as `CI-AdoptionPlan-Hosted_Builds_Migration_Updated.xlsx` in the same directory.
 
 ## License
 
